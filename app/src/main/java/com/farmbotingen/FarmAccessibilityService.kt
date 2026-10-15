@@ -136,27 +136,36 @@ class FarmAccessibilityService : AccessibilityService() {
         lastDef = def
         bubble?.text = "B\\nA:${atk ?: "?"} D:${def ?: "?"}"
 
-        if (automationRunning && (state == State.FARM || state == State.BOSS_SCANNING || state == State.BOSS_ATTACKING)) {
-            val thresholdAtk = prefs.getInt(KEY_ATK_THRESHOLD, 0)
-            val thresholdDef = prefs.getInt(KEY_DEF_THRESHOLD, 0)
+        val thresholdAtk = prefs.getInt(KEY_ATK_THRESHOLD, 0)
+        val thresholdDef = prefs.getInt(KEY_DEF_THRESHOLD, 0)
+        if (automationRunning && state == State.WAITING_BUFF) {
+            val recovered = lastAtk != null && lastDef != null &&
+                lastAtk!! >= thresholdAtk && lastDef!! >= thresholdDef
+            if (recovered) {
+                state = State.BOSS_SCANNING
+                lastActionAt = 0L
+                Toast.makeText(this, "ATK/DEF alt sınırları karşılandı; boss taramasına dönülüyor.", Toast.LENGTH_SHORT).show()
+                beginBossScan()
+            } else {
+                bubble?.text = "B\\nBUFF?"
+            }
+        } else if (automationRunning && (state == State.FARM || state == State.BOSS_SCANNING || state == State.BOSS_ATTACKING)) {
             val buffNeeded = prefs.getBoolean(KEY_BUFF_ENABLED, false) &&
                 lastAtk != null && lastDef != null &&
                 (lastAtk!! < thresholdAtk || lastDef!! < thresholdDef)
             if (buffNeeded && now - lastActionAt > 5000) {
                 lastActionAt = now
+                val mapWasOpen = state == State.BOSS_SCANNING
                 state = State.GOING_BUFF
-                travelToTarget(KEY_BUFF, prefs) {
-                    if (automationRunning) {
-                        state = State.WAITING_BUFF
-                        handler.postDelayed({
-                            if (automationRunning && state == State.WAITING_BUFF) {
-                                // Wait at the configured buff location, then read stats again.
-                                state = State.BOSS_SCANNING
-                                beginBossScan()
-                            }
-                        }, BUFF_WAIT_MS)
+                val goBuff = {
+                    travelToTarget(KEY_BUFF, prefs) {
+                        if (automationRunning) {
+                            state = State.WAITING_BUFF
+                            Toast.makeText(this, "Buff noktasında ATK/DEF toparlanması bekleniyor.", Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
+                if (mapWasOpen) tapConfigured(KEY_MAP_CLOSE) { goBuff() } else goBuff()
             }
         }
     }
@@ -231,37 +240,62 @@ class FarmAccessibilityService : AccessibilityService() {
         }
     }
 
-    // Returns the center of the strongest yellow cluster on the open map, avoiding screen edges.
+    // Finds compact yellow clusters in the map area; rejects long text/UI streaks.
+    // This is a color heuristic, not a trained game-specific detector, so uncertain screens are skipped.
     private fun findYellowTarget(bitmap: Bitmap): Pair<Int, Int>? {
-        val cols = 16
-        val rows = 12
-        val counts = Array(rows) { IntArray(cols) }
-        val sumX = Array(rows) { IntArray(cols) }
-        val sumY = Array(rows) { IntArray(cols) }
-        val stepX = (bitmap.width / 180).coerceAtLeast(1)
-        val stepY = (bitmap.height / 140).coerceAtLeast(1)
-        for (y in (bitmap.height * 0.10).toInt() until (bitmap.height * 0.84).toInt() step stepY) {
-            for (x in (bitmap.width * 0.08).toInt() until (bitmap.width * 0.88).toInt() step stepX) {
+        val stepX = (bitmap.width / 240).coerceAtLeast(1)
+        val stepY = (bitmap.height / 160).coerceAtLeast(1)
+        val left = (bitmap.width * 0.10f).toInt()
+        val right = (bitmap.width * 0.86f).toInt()
+        val top = (bitmap.height * 0.12f).toInt()
+        val bottom = (bitmap.height * 0.80f).toInt()
+        val cols = ((right - left) / stepX).coerceAtLeast(1)
+        val rows = ((bottom - top) / stepY).coerceAtLeast(1)
+        val mask = Array(rows) { BooleanArray(cols) }
+        for (gy in 0 until rows) {
+            val y = top + gy * stepY
+            for (gx in 0 until cols) {
+                val x = left + gx * stepX
                 val c = bitmap.getPixel(x, y)
                 val r = Color.red(c); val g = Color.green(c); val b = Color.blue(c)
-                if (r > 185 && g > 120 && g < 245 && b < 105 && r > g && g > b * 1.25) {
-                    val cx = (x * cols / bitmap.width).coerceIn(0, cols - 1)
-                    val cy = (y * rows / bitmap.height).coerceIn(0, rows - 1)
-                    counts[cy][cx]++
-                    sumX[cy][cx] += x
-                    sumY[cy][cx] += y
+                mask[gy][gx] = r > 190 && g > 115 && g < 245 && b < 110 &&
+                    r > g && g > b * 1.22
+            }
+        }
+        val seen = Array(rows) { BooleanArray(cols) }
+        var best: Pair<Int, Int>? = null
+        var bestScore = 0
+        for (sy in 1 until rows - 1) for (sx in 1 until cols - 1) {
+            if (!mask[sy][sx] || seen[sy][sx]) continue
+            val queue = java.util.ArrayDeque<Pair<Int, Int>>()
+            val component = ArrayList<Pair<Int, Int>>()
+            queue.add(Pair(sx, sy)); seen[sy][sx] = true
+            while (queue.isNotEmpty() && component.size < 300) {
+                val p = queue.removeFirst()
+                component.add(p)
+                for (dy in -1..1) for (dx in -1..1) {
+                    val nx = p.first + dx; val ny = p.second + dy
+                    if (nx in 1 until cols - 1 && ny in 1 until rows - 1 &&
+                        mask[ny][nx] && !seen[ny][nx]) {
+                        seen[ny][nx] = true
+                        queue.add(Pair(nx, ny))
+                    }
                 }
             }
-        }
-        var bestX = -1; var bestY = -1; var bestCount = 0
-        for (y in 0 until rows) for (x in 0 until cols) {
-            if (counts[y][x] > bestCount) {
-                bestCount = counts[y][x]
-                bestX = x; bestY = y
+            val minX = component.minOf { it.first }; val maxX = component.maxOf { it.first }
+            val minY = component.minOf { it.second }; val maxY = component.maxOf { it.second }
+            val w = maxX - minX + 1; val h = maxY - minY + 1
+            val count = component.size
+            // A small compact blob is more plausible than a long yellow label or UI strip.
+            if (count in 3..45 && w in 2..10 && h in 2..10 &&
+                w.toFloat() / h.toFloat() in 0.35f..2.8f && count > bestScore) {
+                bestScore = count
+                val centerX = left + ((minX + maxX) / 2) * stepX
+                val centerY = top + ((minY + maxY) / 2) * stepY
+                best = Pair(centerX.coerceIn(left, right), centerY.coerceIn(top, bottom))
             }
         }
-        if (bestCount < 5 || bestX < 0) return null
-        return Pair(sumX[bestY][bestX] / bestCount, sumY[bestY][bestX] / bestCount)
+        return if (bestScore >= 3) best else null
     }
 
     // 1 = yellow/alive, 2 = pale gray/dead, 0 = unclear.
@@ -362,8 +396,12 @@ class FarmAccessibilityService : AccessibilityService() {
     }
 
     fun startAutomation() {
-        val required = mutableListOf(KEY_CHAT, KEY_CHAT_CLOSE, KEY_ATTACK, KEY_SHIELD, KEY_REVIVAL, KEY_MAP_OPEN, KEY_MAP_CLOSE, KEY_RANDOM, KEY_BOSS_ICON)
-        if (prefs.getBoolean(KEY_BUFF_ENABLED, false)) required.add(KEY_BUFF)
+        val required = mutableListOf(KEY_ATTACK, KEY_SHIELD, KEY_REVIVAL, KEY_MAP_OPEN, KEY_MAP_CLOSE, KEY_RANDOM, KEY_BOSS_ICON)
+        if (prefs.getBoolean(KEY_BUFF_ENABLED, false)) {
+            required.add(KEY_CHAT)
+            required.add(KEY_CHAT_CLOSE)
+            required.add(KEY_BUFF)
+        }
         val missing = required.filter { !valid(prefs.getInt("${it}_X", -1), prefs.getInt("${it}_Y", -1)) }
         if (missing.isNotEmpty()) {
             Toast.makeText(this, "Eksik konumlar: " + missing.joinToString(), Toast.LENGTH_LONG).show(); return
