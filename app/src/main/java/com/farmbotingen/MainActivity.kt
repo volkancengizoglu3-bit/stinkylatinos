@@ -48,11 +48,11 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(root); page.addView(scroll); setContentView(page)
         root.addView(TextView(this).apply {
-            text = "FARM BOT / INGEN"; textSize = 12f; letterSpacing = .18f
+            text = "MU IMMORTAL / BOSS HUNTER"; textSize = 12f; letterSpacing = .18f
             setTextColor(accent); setTypeface(null, Typeface.BOLD)
         })
         root.addView(TextView(this).apply {
-            text = "FarmBotInGen"; textSize = 30f; setTextColor(white)
+            text = "Boss Hunter"; textSize = 30f; setTextColor(white)
             setTypeface(null, Typeface.BOLD); setPadding(0, 5, 0, 3)
         })
         root.addView(bodyText("Konum seçmek için düğmeye bas, oyun ekranına geç ve hedef noktaya bir kez dokun. Seçim katmanı dokunuşu oyuna iletmez."))
