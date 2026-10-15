@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <application
         android:allowBackup="false"
-        android:label="FarmBotInGen"
+        android:label="Boss Hunter"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity
@@ -16,7 +16,7 @@
         </activity>
         <service
             android:name=".FarmAccessibilityService"
-            android:label="FarmBotInGen Automation"
+            android:label="Boss Hunter Automation"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="false">
             <intent-filter>
