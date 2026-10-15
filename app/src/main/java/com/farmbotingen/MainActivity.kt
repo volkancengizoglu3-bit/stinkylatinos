@@ -151,7 +151,9 @@ class MainActivity : Activity() {
         text = value; textSize = 13f; setTextColor(muted); setPadding(0, 0, 0, 12)
     }
     private fun actionButton(label: String, color: Int, action: () -> Unit) = Button(this).apply {
-        text = label; isAllCaps = false; textSize = 13f; setTextColor(Color.WHITE)
+        text = label; isAllCaps = false; textSize = 13f
+        val luminance = Color.red(color) * 0.299 + Color.green(color) * 0.587 + Color.blue(color) * 0.114
+        setTextColor(if (luminance > 160) Color.rgb(30, 24, 8) else Color.WHITE)
         background = rounded(color, 12); setPadding(10, 5, 10, 5); setOnClickListener { action() }
     }
     private fun addSingle(root: LinearLayout, label: String, key: String, default: String) {
