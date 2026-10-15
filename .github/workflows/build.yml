@@ -34,6 +34,6 @@ jobs:
           RELEASE_TAG: v1.0.${{ github.run_number }}
         run: |
           cp app/build/outputs/apk/debug/app-debug.apk Boss-Hunter.apk
-          gh release create "$RELEASE_TAG" FarmBotInGen.apk \
+          gh release create "$RELEASE_TAG" Boss-Hunter.apk \
             --title "Boss Hunter $RELEASE_TAG" \
             --notes "Automated debug APK build from commit ${GITHUB_SHA}. Install for testing; this is not a Play Store-signed production release."
