@@ -270,7 +270,7 @@ class FarmAccessibilityService : AccessibilityService() {
             val queue = java.util.ArrayDeque<Pair<Int, Int>>()
             val component = ArrayList<Pair<Int, Int>>()
             queue.add(Pair(sx, sy)); seen[sy][sx] = true
-            while (queue.isNotEmpty() && component.size < 300) {
+            while (queue.isNotEmpty()) {
                 val p = queue.removeFirst()
                 component.add(p)
                 for (dy in -1..1) for (dx in -1..1) {
