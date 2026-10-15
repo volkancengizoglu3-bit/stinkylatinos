@@ -20,13 +20,13 @@ import android.widget.TextView
 import android.widget.Toast
 
 class MainActivity : Activity() {
-    private val prefs by lazy { getSharedPreferences("farmbotingen_settings", MODE_PRIVATE) }
+    private val prefs by lazy { getSharedPreferences("bosshunter_settings", MODE_PRIVATE) }
     private val fields = linkedMapOf<String, EditText>()
     private lateinit var buffEnabled: CheckBox
-    private val bg = Color.rgb(12, 18, 32)
-    private val panel = Color.rgb(23, 32, 51)
-    private val accent = Color.rgb(88, 166, 255)
-    private val muted = Color.rgb(163, 177, 199)
+    private val bg = Color.rgb(18, 16, 8)
+    private val panel = Color.rgb(39, 33, 15)
+    private val accent = Color.rgb(255, 196, 35)
+    private val muted = Color.rgb(207, 194, 155)
     private val white = Color.rgb(241, 246, 255)
 
     private val points = listOf(
@@ -36,7 +36,11 @@ class MainActivity : Activity() {
         "Buff hedefi" to FarmAccessibilityService.KEY_BUFF,
         "Oto atak düğmesi" to FarmAccessibilityService.KEY_ATTACK,
         "Koruyucu kalkan" to FarmAccessibilityService.KEY_SHIELD,
-        "Free Revival" to FarmAccessibilityService.KEY_REVIVAL
+        "Free Revival" to FarmAccessibilityService.KEY_REVIVAL,
+        "Harita açma" to FarmAccessibilityService.KEY_MAP_OPEN,
+        "Harita kapatma" to FarmAccessibilityService.KEY_MAP_CLOSE,
+        "Random düğmesi" to FarmAccessibilityService.KEY_RANDOM,
+        "Boss simgesi (minimap)" to FarmAccessibilityService.KEY_BOSS_ICON
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,14 +52,14 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(root); page.addView(scroll); setContentView(page)
         root.addView(TextView(this).apply {
-            text = "MU IMMORTAL / BOSS HUNTER"; textSize = 12f; letterSpacing = .18f
+            text = "MU IMMORTAL / GOLDEN MONSTER"; textSize = 12f; letterSpacing = .18f
             setTextColor(accent); setTypeface(null, Typeface.BOLD)
         })
         root.addView(TextView(this).apply {
-            text = "Boss Hunter"; textSize = 30f; setTextColor(white)
+            text = "Boss Hunter"; textSize = 30f; setTextColor(accent)
             setTypeface(null, Typeface.BOLD); setPadding(0, 5, 0, 3)
         })
-        root.addView(bodyText("Konum seçmek için düğmeye bas, oyun ekranına geç ve hedef noktaya bir kez dokun. Seçim katmanı dokunuşu oyuna iletmez."))
+        root.addView(bodyText("Konum seç düğmesine basıp oyun ekranında ilgili düğmeye dokun. Golden Monster taraması için harita, Random ve minimap boss simgesi noktalarını da kaydet."))
 
         val controls = card()
         controls.addView(sectionTitle("YÜZEN KONTROL"))
@@ -69,14 +73,14 @@ class MainActivity : Activity() {
                 Toast.makeText(this, "Yüzen kontrol hazır.", Toast.LENGTH_SHORT).show()
             }
         })
-        controls.addView(actionButton("Erişilebilirlik servisini aç", Color.rgb(47, 63, 87)) {
+        controls.addView(actionButton("Erişilebilirlik servisini aç", Color.rgb(91, 69, 15)) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         })
         root.addView(controls, marginBottom())
 
         val coords = card()
         coords.addView(sectionTitle("01 / DOKUNUŞ NOKTALARI"))
-        coords.addView(bodyText("Her konum için seç düğmesine bas; oyun ekranında hedefe dokun. Kaydedilen konumlar 0–1000 ölçeğinde tutulur."))
+        coords.addView(bodyText("Her konum için seç düğmesine basıp oyun ekranında ilgili noktaya dokun. Konumlar 0–1000 ölçeğinde kaydedilir."))
         points.forEach { (label, key) ->
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             row.addView(TextView(this).apply {
@@ -94,7 +98,7 @@ class MainActivity : Activity() {
 
         val buff = card()
         buff.addView(sectionTitle("02 / BUFF AYARLARI"))
-        buff.addView(bodyText("Buff, ATK veya DEF değerlerinden biri kendi alt sınırının altına düşerse tetiklenir. Değerler okunamazsa bot buff kararı vermez."))
+        buff.addView(bodyText("Buff açıksa ATK veya DEF kendi alt sınırının altına düştüğünde buff noktasına gider. Değerler okunamazsa karar vermez."))
         buffEnabled = CheckBox(this).apply {
             text = "Buff modunu etkinleştir"; setTextColor(white)
             buttonTintList = android.content.res.ColorStateList.valueOf(accent)
@@ -154,8 +158,8 @@ class MainActivity : Activity() {
         root.addView(TextView(this).apply { text = label; textSize = 13f; setTextColor(muted); setPadding(0, 8, 0, 2) })
         val field = EditText(this).apply {
             hint = label; inputType = android.text.InputType.TYPE_CLASS_NUMBER; setSingleLine(true)
-            textSize = 15f; setTextColor(white); setHintTextColor(Color.rgb(112, 129, 153))
-            background = rounded(Color.rgb(31, 43, 65), 10); setPadding(12, 8, 12, 8)
+            textSize = 15f; setTextColor(white); setHintTextColor(Color.rgb(157, 139, 82))
+            background = rounded(Color.rgb(54, 45, 19), 10); setPadding(12, 8, 12, 8)
             setText(prefs.getInt(key, default.toInt()).toString())
         }
         fields[key] = field; root.addView(field)
