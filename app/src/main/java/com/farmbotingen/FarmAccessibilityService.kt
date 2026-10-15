@@ -45,15 +45,16 @@ class FarmAccessibilityService : AccessibilityService() {
     private var lastDef: Int? = null
     private var selectionKey: String? = null
     private var selectionLabel: String? = null
-    private val prefs by lazy { getSharedPreferences("farmbotingen_settings", MODE_PRIVATE) }
+    private val prefs by lazy { getSharedPreferences("bosshunter_settings", MODE_PRIVATE) }
     private val textRecognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
-    private enum class State { FARM, GOING_BUFF, WAITING_BUFF, GOING_FARM, DEAD_WAIT }
+    private enum class State { FARM, GOING_BUFF, WAITING_BUFF, GOING_FARM, DEAD_WAIT, BOSS_SCANNING, BOSS_MOVING, BOSS_ATTACKING }
+    private var grayBossFrames = 0
 
     private val farmActionLoop = object : Runnable {
         override fun run() {
             if (!automationRunning) return
-            if (state == State.FARM && System.currentTimeMillis() - lastActionAt >= FARM_ACTION_INTERVAL_MS) tapFarmSkills()
+            if ((state == State.FARM || state == State.BOSS_ATTACKING) && System.currentTimeMillis() - lastActionAt >= FARM_ACTION_INTERVAL_MS) tapFarmSkills()
             handler.postDelayed(this, 2000)
         }
     }
@@ -88,6 +89,7 @@ class FarmAccessibilityService : AccessibilityService() {
                         bitmap = Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
                         screenshot.hardwareBuffer.close()
                         if (bitmap == null) { screenshotBusy = false; return }
+                        if (automationRunning && (state == State.BOSS_SCANNING || state == State.BOSS_ATTACKING)) inspectBossVisual(bitmap)
                         val image = InputImage.fromBitmap(bitmap, 0)
                         textRecognizer.process(image)
                             .addOnSuccessListener { result -> inspectResult(result, bitmap.width, bitmap.height) }
@@ -134,12 +136,12 @@ class FarmAccessibilityService : AccessibilityService() {
         lastDef = def
         bubble?.text = "F\\nA:${atk ?: "?"} D:${def ?: "?"}"
 
-        if (automationRunning && state == State.FARM) {
+        if (automationRunning && (state == State.FARM || state == State.BOSS_SCANNING || state == State.BOSS_ATTACKING)) {
             val thresholdAtk = prefs.getInt(KEY_ATK_THRESHOLD, 0)
             val thresholdDef = prefs.getInt(KEY_DEF_THRESHOLD, 0)
             val buffNeeded = prefs.getBoolean(KEY_BUFF_ENABLED, false) &&
                 lastAtk != null && lastDef != null &&
-                lastAtk!! < thresholdAtk || lastDef!! < thresholdDef
+                (lastAtk!! < thresholdAtk || lastDef!! < thresholdDef)
             if (buffNeeded && now - lastActionAt > 5000) {
                 lastActionAt = now
                 state = State.GOING_BUFF
@@ -151,7 +153,7 @@ class FarmAccessibilityService : AccessibilityService() {
                                 // Wait at the configured buff location, then read stats again.
                                 state = State.GOING_FARM
                                 travelToTarget(KEY_FARM, prefs) {
-                                    if (automationRunning) { state = State.FARM; tapFarmSkills() }
+                                    if (automationRunning) { state = State.BOSS_SCANNING; beginBossScan() }
                                 }
                             }
                         }, BUFF_WAIT_MS)
@@ -159,6 +161,138 @@ class FarmAccessibilityService : AccessibilityService() {
                 }
             }
         }
+    }
+
+    private fun beginBossScan() {
+        if (!automationRunning && state != State.FARM) {
+            // Manual scan from the floating panel is allowed when the service is connected.
+        }
+        val x = prefs.getInt("${KEY_MAP_OPEN}_X", -1)
+        val y = prefs.getInt("${KEY_MAP_OPEN}_Y", -1)
+        if (!valid(x, y)) {
+            Toast.makeText(this, "Önce Harita açma konumunu kaydet.", Toast.LENGTH_LONG).show()
+            return
+        }
+        state = State.BOSS_SCANNING
+        tapNormalized(x, y) {
+            lastActionAt = System.currentTimeMillis()
+            Toast.makeText(this, "Harita açık: sarı boss işareti aranıyor.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun inspectBossVisual(source: Bitmap) {
+        if (!automationRunning) return
+        val bitmap = try { if (source.config == Bitmap.Config.HARDWARE) source.copy(Bitmap.Config.ARGB_8888, false) else source } catch (_: Exception) { return }
+        try {
+            if (state == State.BOSS_SCANNING) {
+                val target = findYellowTarget(bitmap)
+                if (target != null) {
+                    state = State.BOSS_MOVING
+                    val nx = (target.first.toFloat() / bitmap.width * 1000).toInt().coerceIn(0, 1000)
+                    val ny = (target.second.toFloat() / bitmap.height * 1000).toInt().coerceIn(0, 1000)
+                    tapNormalized(nx, ny) {
+                        handler.postDelayed({
+                            if (automationRunning && state == State.BOSS_MOVING) {
+                                tapConfigured(KEY_MAP_CLOSE) {
+                                    state = State.BOSS_ATTACKING
+                                    grayBossFrames = 0
+                                    tapFarmSkills()
+                                    Toast.makeText(this, "Boss konumu seçildi; saldırı başladı.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }, 5500)
+                    }
+                    lastActionAt = System.currentTimeMillis()
+                } else if (System.currentTimeMillis() - lastActionAt > 3500) {
+                    tapConfigured(KEY_RANDOM) {
+                        // Random teleport keeps the map open; scan the new area on the next screenshot.
+                        lastActionAt = System.currentTimeMillis()
+                    }
+                }
+            } else if (state == State.BOSS_ATTACKING) {
+                val marker = sampleBossMarker(bitmap)
+                when (marker) {
+                    1 -> grayBossFrames = 0 // yellow skull: boss alive
+                    2 -> {
+                        grayBossFrames++
+                        if (grayBossFrames >= 3) {
+                            grayBossFrames = 0
+                            state = State.BOSS_SCANNING
+                            lastActionAt = 0L
+                            val mx = prefs.getInt("${KEY_MAP_OPEN}_X", -1)
+                            val my = prefs.getInt("${KEY_MAP_OPEN}_Y", -1)
+                            if (valid(mx, my)) handler.postDelayed({ if (automationRunning) tapNormalized(mx, my) }, 900)
+                            Toast.makeText(this, "Boss yenildi; sonraki hedef aranıyor.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    else -> grayBossFrames = 0
+                }
+            }
+        } finally {
+            if (bitmap !== source) bitmap.recycle()
+        }
+    }
+
+    // Returns the center of the strongest yellow cluster on the open map, avoiding screen edges.
+    private fun findYellowTarget(bitmap: Bitmap): Pair<Int, Int>? {
+        val cols = 16
+        val rows = 12
+        val counts = Array(rows) { IntArray(cols) }
+        val sumX = Array(rows) { IntArray(cols) }
+        val sumY = Array(rows) { IntArray(cols) }
+        val stepX = (bitmap.width / 180).coerceAtLeast(1)
+        val stepY = (bitmap.height / 140).coerceAtLeast(1)
+        for (y in (bitmap.height * 0.10).toInt() until (bitmap.height * 0.84).toInt() step stepY) {
+            for (x in (bitmap.width * 0.08).toInt() until (bitmap.width * 0.88).toInt() step stepX) {
+                val c = bitmap.getPixel(x, y)
+                val r = Color.red(c); val g = Color.green(c); val b = Color.blue(c)
+                if (r > 185 && g > 120 && g < 245 && b < 105 && r > g && g > b * 1.25) {
+                    val cx = (x * cols / bitmap.width).coerceIn(0, cols - 1)
+                    val cy = (y * rows / bitmap.height).coerceIn(0, rows - 1)
+                    counts[cy][cx]++
+                    sumX[cy][cx] += x
+                    sumY[cy][cx] += y
+                }
+            }
+        }
+        var bestX = -1; var bestY = -1; var bestCount = 0
+        for (y in 0 until rows) for (x in 0 until cols) {
+            if (counts[y][x] > bestCount) {
+                bestCount = counts[y][x]
+                bestX = x; bestY = y
+            }
+        }
+        if (bestCount < 5 || bestX < 0) return null
+        return Pair(sumX[bestY][bestX] / bestCount, sumY[bestY][bestX] / bestCount)
+    }
+
+    // 1 = yellow/alive, 2 = pale gray/dead, 0 = unclear.
+    private fun sampleBossMarker(bitmap: Bitmap): Int {
+        val nx = prefs.getInt("${KEY_BOSS_ICON}_X", -1)
+        val ny = prefs.getInt("${KEY_BOSS_ICON}_Y", -1)
+        if (!valid(nx, ny)) return 0
+        val cx = (nx / 1000f * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
+        val cy = (ny / 1000f * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+        var yellow = 0; var gray = 0
+        for (y in (cy - 10).coerceAtLeast(0)..(cy + 10).coerceAtMost(bitmap.height - 1) step 2) {
+            for (x in (cx - 10).coerceAtLeast(0)..(cx + 10).coerceAtMost(bitmap.width - 1) step 2) {
+                val c = bitmap.getPixel(x, y)
+                val r = Color.red(c); val g = Color.green(c); val b = Color.blue(c)
+                if (r > 175 && g > 110 && b < 100 && r > g && g > b * 1.3) yellow++
+                if (r in 95..215 && g in 95..215 && b in 95..215 && kotlin.math.abs(r-g) < 20 && kotlin.math.abs(g-b) < 20) gray++
+            }
+        }
+        return if (yellow >= 4) 1 else if (gray >= 8) 2 else 0
+    }
+
+    private fun tapConfigured(key: String, done: (() -> Unit)? = null) {
+        val x = prefs.getInt("${key}_X", -1)
+        val y = prefs.getInt("${key}_Y", -1)
+        if (!valid(x, y)) {
+            Toast.makeText(this, "Eksik dokunuş noktası: $key", Toast.LENGTH_LONG).show()
+            return
+        }
+        tapNormalized(x, y, done)
     }
 
     private fun extractStat(text: String, labels: List<String>): Int? {
@@ -230,28 +364,26 @@ class FarmAccessibilityService : AccessibilityService() {
     }
 
     fun startAutomation() {
-        val required = mutableListOf(KEY_CHAT, KEY_CHAT_CLOSE, KEY_FARM, KEY_ATTACK, KEY_SHIELD, KEY_REVIVAL)
+        val required = mutableListOf(KEY_CHAT, KEY_CHAT_CLOSE, KEY_ATTACK, KEY_SHIELD, KEY_REVIVAL, KEY_MAP_OPEN, KEY_MAP_CLOSE, KEY_RANDOM, KEY_BOSS_ICON)
         if (prefs.getBoolean(KEY_BUFF_ENABLED, false)) required.add(KEY_BUFF)
         val missing = required.filter { !valid(prefs.getInt("${it}_X", -1), prefs.getInt("${it}_Y", -1)) }
         if (missing.isNotEmpty()) {
             Toast.makeText(this, "Eksik konumlar: " + missing.joinToString(), Toast.LENGTH_LONG).show(); return
         }
         automationRunning = true
-        state = State.FARM
+        state = State.BOSS_SCANNING
+        grayBossFrames = 0
         handler.removeCallbacks(farmActionLoop)
         handler.postDelayed(farmActionLoop, 2000)
-        travelToTarget(KEY_FARM, prefs) {
-            if (automationRunning) {
-                tapFarmSkills()
-                Toast.makeText(this, "Otomasyon başladı. Durdur düğmesine basana kadar çalışır.", Toast.LENGTH_LONG).show()
-            }
-        }
+        Toast.makeText(this, "Golden Monster avı başladı; harita taranıyor.", Toast.LENGTH_LONG).show()
+        beginBossScan()
     }
 
     fun stopAutomation() {
         automationRunning = false
         handler.removeCallbacks(farmActionLoop)
         state = State.FARM
+        grayBossFrames = 0
         Toast.makeText(this, "Otomasyon durduruldu.", Toast.LENGTH_SHORT).show()
     }
 
@@ -300,25 +432,25 @@ class FarmAccessibilityService : AccessibilityService() {
         val density=resources.displayMetrics.density
         val container=LinearLayout(this).apply {
             orientation=LinearLayout.VERTICAL; setPadding(16,14,16,14)
-            background=rounded(Color.rgb(20,29,46),18,Color.rgb(65,91,132)); elevation=18f
+            background=rounded(Color.rgb(31,27,13),18,Color.rgb(255,196,35)); elevation=18f
         }
         val header=TextView(this).apply {
-            text="FARMBOTINGEN   ⋮⋮"; textSize=14f; typeface=Typeface.DEFAULT_BOLD
-            setTextColor(Color.rgb(125,184,255)); setPadding(4,4,4,14)
+            text="BOSS HUNTER   ⋮⋮"; textSize=14f; typeface=Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(255,196,35)); setPadding(4,4,4,14)
         }
         container.addView(header)
-        addPopupAction(container, if (automationRunning) "■  Otomasyonu durdur" else "▶  Otomasyonu başlat", Color.rgb(45,117,232)) {
+        addPopupAction(container, if (automationRunning) "■  Avı durdur" else "▶  Golden Monster avını başlat", Color.rgb(150,108,12)) {
             if (automationRunning) stopAutomation() else startAutomation()
             try { windowManager?.removeView(container) } catch (_:Exception) {}; popup=null; popupParams=null
             togglePopup()
         }
-        addPopupAction(container, "▶  Farm konumuna git", Color.rgb(53,76,105)) { travelToTarget(KEY_FARM,prefs) }
-        addPopupAction(container, "✦  Buff konumuna git", Color.rgb(53,76,105)) { travelToTarget(KEY_BUFF,prefs) }
-        addPopupAction(container, "♥  Free Revival (test)", Color.rgb(144,87,45)) { tapRevival() }
-        addPopupAction(container, "⚙  Ayarları aç", Color.rgb(53,76,105)) {
+        addPopupAction(container, "◎  Haritayı aç ve tara", Color.rgb(91,69,15)) { beginBossScan() }
+        addPopupAction(container, "✦  Buff konumuna git", Color.rgb(91,69,15)) { travelToTarget(KEY_BUFF,prefs) }
+        addPopupAction(container, "♥  Free Revival (test)", Color.rgb(110,73,22)) { tapRevival() }
+        addPopupAction(container, "⚙  Ayarları aç", Color.rgb(91,69,15)) {
             startActivity(android.content.Intent(this, MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
         }
-        addPopupAction(container, "—  Paneli kapat", Color.rgb(40,51,70)) {
+        addPopupAction(container, "—  Paneli kapat", Color.rgb(59,49,21)) {
             try { windowManager?.removeView(container) } catch (_:Exception) {}; popup=null; popupParams=null
         }
         val params=WindowManager.LayoutParams((280*density).toInt(),WindowManager.LayoutParams.WRAP_CONTENT,
@@ -352,7 +484,7 @@ class FarmAccessibilityService : AccessibilityService() {
         val hint=TextView(this).apply {
             text="KONUM SEÇİMİ: $label\nİstenen noktaya bir kez dokun. İptal için geri tuşuna bas."
             textSize=16f; setTextColor(Color.WHITE); gravity=Gravity.CENTER
-            setPadding(20,18,20,18); background=rounded(Color.rgb(20,29,46),14,Color.rgb(88,166,255))
+            setPadding(20,18,20,18); background=rounded(Color.rgb(31,27,13),14,Color.rgb(255,196,35))
         }
         overlay.addView(hint,FrameLayout.LayoutParams(-1,-2,Gravity.TOP).apply { setMargins(12,36,12,0) })
         val p=WindowManager.LayoutParams(-1,-1,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
@@ -436,6 +568,10 @@ class FarmAccessibilityService : AccessibilityService() {
         const val KEY_BUFF_ENABLED="buff_enabled"
         const val KEY_ATK_THRESHOLD="atk_threshold"
         const val KEY_DEF_THRESHOLD="def_threshold"
+        const val KEY_MAP_OPEN="map_open"
+        const val KEY_MAP_CLOSE="map_close"
+        const val KEY_RANDOM="random"
+        const val KEY_BOSS_ICON="boss_icon"
         private const val BUFF_WAIT_MS=10000L
         private const val FARM_ACTION_INTERVAL_MS=15000L
         @Volatile private var instance:FarmAccessibilityService?=null
