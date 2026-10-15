@@ -151,10 +151,8 @@ class FarmAccessibilityService : AccessibilityService() {
                         handler.postDelayed({
                             if (automationRunning && state == State.WAITING_BUFF) {
                                 // Wait at the configured buff location, then read stats again.
-                                state = State.GOING_FARM
-                                travelToTarget(KEY_FARM, prefs) {
-                                    if (automationRunning) { state = State.BOSS_SCANNING; beginBossScan() }
-                                }
+                                state = State.BOSS_SCANNING
+                                beginBossScan()
                             }
                         }, BUFF_WAIT_MS)
                     }
@@ -329,10 +327,10 @@ class FarmAccessibilityService : AccessibilityService() {
                                     val y = prefs.getInt("${KEY_REVIVAL}_Y", -1)
                                     if (valid(x, y)) tapNormalized(x, y) {
                                         handler.postDelayed({
-                                            if (automationRunning) travelToTarget(KEY_FARM, prefs) {
-                                                state = State.FARM
-                                                tapFarmSkills()
-                                                Toast.makeText(this@FarmAccessibilityService, "Dirilme sonrası farm akışına dönüldü.", Toast.LENGTH_LONG).show()
+                                            if (automationRunning) {
+                                                state = State.BOSS_SCANNING
+                                                beginBossScan()
+                                                Toast.makeText(this@FarmAccessibilityService, "Dirilme sonrası Golden Monster taramasına dönüldü.", Toast.LENGTH_LONG).show()
                                             }
                                         }, 6000)
                                     }
