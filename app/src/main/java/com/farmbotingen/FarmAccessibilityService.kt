@@ -134,7 +134,7 @@ class FarmAccessibilityService : AccessibilityService() {
         // Do not reuse old readings: ATK and DEF must both be detected in this screenshot.
         lastAtk = atk
         lastDef = def
-        bubble?.text = "F\\nA:${atk ?: "?"} D:${def ?: "?"}"
+        bubble?.text = "B\\nA:${atk ?: "?"} D:${def ?: "?"}"
 
         if (automationRunning && (state == State.FARM || state == State.BOSS_SCANNING || state == State.BOSS_ATTACKING)) {
             val thresholdAtk = prefs.getInt(KEY_ATK_THRESHOLD, 0)
@@ -195,7 +195,7 @@ class FarmAccessibilityService : AccessibilityService() {
                                     state = State.BOSS_ATTACKING
                                     grayBossFrames = 0
                                     tapFarmSkills()
-                                    Toast.makeText(this, "Boss konumu seçildi; saldırı başladı.", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(this, "Golden Monster hedefi seçildi; oto-atak başladı.", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }, 5500)
@@ -220,7 +220,7 @@ class FarmAccessibilityService : AccessibilityService() {
                             val mx = prefs.getInt("${KEY_MAP_OPEN}_X", -1)
                             val my = prefs.getInt("${KEY_MAP_OPEN}_Y", -1)
                             if (valid(mx, my)) handler.postDelayed({ if (automationRunning) tapNormalized(mx, my) }, 900)
-                            Toast.makeText(this, "Boss yenildi; sonraki hedef aranıyor.", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "Boss simgesi 3 kez gri görüldü; sonraki hedef aranıyor.", Toast.LENGTH_SHORT).show()
                         }
                     }
                     else -> grayBossFrames = 0
@@ -382,7 +382,7 @@ class FarmAccessibilityService : AccessibilityService() {
         handler.removeCallbacks(farmActionLoop)
         state = State.FARM
         grayBossFrames = 0
-        Toast.makeText(this, "Otomasyon durduruldu.", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Golden Monster otomasyonu durduruldu.", Toast.LENGTH_SHORT).show()
     }
 
     fun showFloatingControls() {
@@ -391,9 +391,9 @@ class FarmAccessibilityService : AccessibilityService() {
         if (bubble != null) return
         val density = resources.displayMetrics.density
         val icon = TextView(this).apply {
-            text = "F"; textSize = 21f; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
-            typeface = Typeface.DEFAULT_BOLD; background = circle(Color.rgb(55, 125, 255)); elevation = 10f
-            contentDescription = "FarmBotInGen yüzen kontrolünü aç"
+            text = "B"; textSize = 21f; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD; background = circle(Color.rgb(255, 190, 25)); elevation = 10f
+            contentDescription = "Boss Hunter yüzen kontrolünü aç"
         }
         val params = WindowManager.LayoutParams((54*density).toInt(), (54*density).toInt(),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
@@ -541,7 +541,7 @@ class FarmAccessibilityService : AccessibilityService() {
     }
 
     private fun valid(x:Int,y:Int)=x in 0..1000 && y in 0..1000
-    private fun circle(color:Int)=GradientDrawable().apply { shape=GradientDrawable.OVAL; setColor(color); setStroke((2*resources.displayMetrics.density).toInt(),Color.rgb(180,215,255)) }
+    private fun circle(color:Int)=GradientDrawable().apply { shape=GradientDrawable.OVAL; setColor(color); setStroke((2*resources.displayMetrics.density).toInt(),Color.rgb(255,218,91)) }
     private fun rounded(color:Int,radius:Int,stroke:Int?=null)=GradientDrawable().apply {
         setColor(color); cornerRadius=radius*resources.displayMetrics.density
         if(stroke!=null) setStroke((1*resources.displayMetrics.density).toInt(),stroke)
