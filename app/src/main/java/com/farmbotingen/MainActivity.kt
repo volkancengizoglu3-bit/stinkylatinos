@@ -94,7 +94,7 @@ class MainActivity : Activity() {
 
         val buff = card()
         buff.addView(sectionTitle("02 / BUFF AYARLARI"))
-        buff.addView(bodyText("Buff yalnızca ATK ve DEF değerlerinin ikisi de kendi alt sınırlarının altındaysa tetiklenir. Değerler okunamazsa bot buff kararı vermez."))
+        buff.addView(bodyText("Buff, ATK veya DEF değerlerinden biri kendi alt sınırının altına düşerse tetiklenir. Değerler okunamazsa bot buff kararı vermez."))
         buffEnabled = CheckBox(this).apply {
             text = "Buff modunu etkinleştir"; setTextColor(white)
             buttonTintList = android.content.res.ColorStateList.valueOf(accent)
