@@ -139,7 +139,7 @@ class FarmAccessibilityService : AccessibilityService() {
             val thresholdDef = prefs.getInt(KEY_DEF_THRESHOLD, 0)
             val buffNeeded = prefs.getBoolean(KEY_BUFF_ENABLED, false) &&
                 lastAtk != null && lastDef != null &&
-                lastAtk!! < thresholdAtk && lastDef!! < thresholdDef
+                lastAtk!! < thresholdAtk || lastDef!! < thresholdDef
             if (buffNeeded && now - lastActionAt > 5000) {
                 lastActionAt = now
                 state = State.GOING_BUFF
